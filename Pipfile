@@ -12,6 +12,7 @@ notebook = "*"
 rise = "*"
 nilearn = "*"
 matplotlib = "*"
+transforms3d = "*"
 
 [requires]
 python_version = "3.8"
