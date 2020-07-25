@@ -6,7 +6,7 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.5.1
+#       jupytext_version: 1.5.2
 #   kernelspec:
 #     display_name: Python 3
 #     language: python
@@ -68,12 +68,16 @@
 # ```Shell
 # conda install -c conda-forge nibabel
 # ```
+#
+# *Note*: This notebook assumes NiBabel 3+, which requires a minimum Python version of 3.5.
 
 # %% slideshow={"slide_type": "subslide"}
 import nibabel as nb
+print(nb.__version__)
 
 # %% slideshow={"slide_type": "fragment"}
 # Some additional, useful imports
+from pathlib import Path
 
 import numpy as np
 import nilearn as nl
@@ -82,6 +86,10 @@ from matplotlib import pyplot as plt
 import transforms3d
 
 # %matplotlib inline
+
+# %%
+# Assume we're on the NeuroHackademy hub.
+data_dir = Path('/home/jovyan/data')
 
 # %% [markdown] slideshow={"slide_type": "slide"}
 # ## Agenda
@@ -100,8 +108,8 @@ import transforms3d
 # ### Loading
 
 # %%
-t1w = nb.load('/data/bids/openneuro/ds000114/sub-01/ses-test/anat/sub-01_ses-test_T1w.nii.gz')
-bold = nb.load('/data/bids/openneuro/ds000114/sub-01/ses-test/func/sub-01_ses-test_task-fingerfootlips_bold.nii.gz')
+t1w = nb.load(data_dir / 'openneuro/ds000114/sub-01/ses-test/anat/sub-01_ses-test_T1w.nii.gz')
+bold = nb.load(data_dir / 'openneuro/ds000114/sub-01/ses-test/func/sub-01_ses-test_task-fingerfootlips_bold.nii.gz')
 
 # %% slideshow={"slide_type": "fragment"}
 print(t1w)
@@ -159,13 +167,16 @@ affine = t1w.affine
 header = t1w.header
 
 # %% [markdown] slideshow={"slide_type": "fragment"}
-# ###### Aside
-# Why not just `t1w.data`? Working with neuroimages can use a lot of memory, so nibabel works hard to be memory efficient. If it can read some data while leaving the rest on disk, it will. `t1w.get_fdata()` reflects that it's doing some work behind the scenes.
+# Spatial images have some properties that should be familiar from NumPy arrays:
+
+# %%
+print(t1w.ndim)
+print(t1w.shape)
 
 # %% [markdown] slideshow={"slide_type": "slide"}
 # ### The data array
 #
-# The data is a simple numpy array. It has a shape, it can be sliced and generally manipulated as you would any array.
+# The data is a simple NumPy array. It can be accessed, sliced and generally manipulated as you would any array:
 
 # %%
 print(data.shape)
@@ -184,7 +195,7 @@ _ = axes[2].imshow(data[:,:,k].T, cmap='Greys_r', origin='lower')
 # NiBabel has a basic viewer that scales voxels to reflect their size and labels orientations.
 
 # %% slideshow={"slide_type": "-"}
-_ = t1w.orthoview()
+_ = t1w.orthoview()  # Requires matplotlib, occasionally glitchy in OSX setups
 
 # %% [markdown]
 # The crosshair is focused at the origin $(0, 0, 0)$.
@@ -339,14 +350,16 @@ print(mghheader.get_data_dtype())
 # %% [markdown] slideshow={"slide_type": "slide"}
 # ### Creating new images
 #
-# Reading data will only take you so far. In many cases, you will want to compute something on an image and save a new image containing the result.
+# Reading data will only take you so far. In many cases, you will want to use the image to compute a new image in the same space. Such a function might take the form:
 #
 # ```Python
 # def my_function(image):
 #     orig_data = image.get_fdata()
 #     new_data = some_operation_on(orig_data)
-#     return image_type(new_data, affine=image.affine, header=image.header)
+#     return image.__class__(new_data, affine=image.affine, header=image.header)
 # ```
+#
+# Note the `image.__class__` ensures that the output image is the same type as the input. If your operation requires specific format features, you might use a specific class like `nb.Nifti1Image`.
 #
 # For example, perhaps we want to save space and rescale our T1w image to an unsigned byte:
 
@@ -354,18 +367,131 @@ print(mghheader.get_data_dtype())
 def rescale(img):
     data = img.get_fdata()
     rescaled = ((data - data.min()) * 255. / (data.max() - data.min())).astype(np.uint8)
-    return nb.Nifti1Image(rescaled, affine=img.affine, header=img.header)
+    
+    rescaled_img = img.__class__(rescaled, affine=img.affine, header=img.header)
+    
+    rescaled_img.header.set_data_dtype('uint8')  # Ensure data is saved as this type
+    return rescaled_img
 
 rescaled_t1w = rescale(t1w)
-rescaled_t1w.to_filename('/tmp/rescaled.nii.gz')
-
-# %% [markdown]
-# *Note*: Do not use this function. We will revisit it after discussing data types.
+rescaled_t1w.to_filename('/tmp/rescaled_t1w.nii.gz')
 
 # %% [markdown] slideshow={"slide_type": "slide"}
-# ## Data types and scaling factors
+# ## Data objects - Arrays and Array Proxies
 #
+# Recall that the spatial image contains data, affine and header objects. When creating a new image, the `data` array is typically an array.
+
+# %%
+array_img = nb.Nifti1Image(np.arange(24).reshape(2, 3, 4), affine=np.diag([2,2,2,1]))
+print(array_img.dataobj)
+
+# %% [markdown] slideshow={"slide_type": "fragment"}
+# When loading a file, an `ArrayProxy` is used for most image types.
+
+# %%
+array_img.to_filename('/tmp/array_img.nii')
+proxy_img = nb.load('/tmp/array_img.nii')
+print(proxy_img.dataobj)
+
+# %% [markdown] slideshow={"slide_type": "fragment"}
+# An array proxy is an object that knows how to access data, but does not read it until requested. The usual way to request data is `get_fdata()`, which returns all data as floating point:
+
+# %%
+proxy_img.get_fdata()
+
+# %% [markdown]
+# `get_fdata()` provides a very predictable interface. When you need more control, you'll want to work with the `ArrayProxy` directly.
+
+# %% [markdown] slideshow={"slide_type": "subslide"}
+# ### Converting array proxies to arrays
 #
+# Array proxies are designed to be one step away from a numpy array:
+
+# %%
+arr = np.asanyarray(proxy_img.dataobj)  # array will create a copy; asarray passes through arrays; asanyarray passes subclasses like memmap through
+print(arr.dtype)
+arr
+
+# %% [markdown]
+# Memory maps are arrays that remain on disk, rather than in RAM. This is only possible with uncompressed images.
+#
+# We can also cast to any type we please, however unwisely. If we request the on-disk dtype, we'll get a `memmap`.
+
+# %%
+print(np.uint8(proxy_img.dataobj))
+print(np.complex256(proxy_img.dataobj))
+np.int64(proxy_img.dataobj)
+
+# %% [markdown] slideshow={"slide_type": "subslide"}
+# ### Indexing and slicing array proxies
+#
+# One of the primary motivations for an array proxy is to avoid loading data unnecessarily. Accessing the array proxy with array indices or slices will return the requested values without loading other data:
+
+# %% slideshow={"slide_type": "-"}
+print(proxy_img.dataobj[0])
+print(proxy_img.dataobj[..., 1:3])
+
+# %% [markdown]
+# For example, this is useful for fetching a single volume from a BOLD series:
+
+# %%
+vol0 = bold.dataobj[..., 0]
+vol0.shape
+
+# %% [markdown]
+# Slicing works with compressed data, as well. Install the [indexed-gzip](https://pypi.org/project/indexed-gzip/) package for significant speedups with gzipped files.
+
+# %% [markdown] slideshow={"slide_type": "subslide"}
+# ### Scaling array proxies
+#
+# Several image types, including NIfTI, have a slope and intercept (scaling factors) in the header that allows them to extend the data range and/or precision beyond those of the on-disk type.
+#
+# For example `uint16` can take the values 0-65535. If a BOLD series includes values from 500-2000, we can calculate a slope that will allow us to utilize the 16 bits of precision to encode our desired values.
+
+# %%
+pr = (500, 2000)                            # Plausible range
+nbits = 16                                   # 8-bits of precision
+scl_slope = (pr[1] - pr[0]) / (2 ** nbits)  # Resolvable difference
+scl_inter = pr[0]                           # Minimum value
+print(scl_slope, scl_inter)
+"Saving space by collapsing plotting into one line."; x = np.arange(2 ** nbits); plt.step(x, x * scl_slope + scl_inter); vlim = np.array([120, 150]); plt.xlim(vlim); plt.ylim(vlim * scl_slope + scl_inter); _ = plt.show();
+
+# %% [markdown] slideshow={"slide_type": "subslide"}
+# Let's create an image from some random values in our plausible range:
+
+# %%
+float_img = nb.Nifti1Image(np.random.default_rng().uniform(500, 2000, (2, 3, 4)),  # 64-bit float
+                           affine=np.diag([2, 2, 2, 1]))
+print(float_img.get_fdata())
+
+# %% [markdown] slideshow={"slide_type": "fragment"}
+# Save as `uint16` and check its values:
+
+# %%
+float_img.header.set_data_dtype(np.uint16)
+float_img.to_filename("/tmp/uint16_img.nii")
+
+uint16_img = nb.load("/tmp/uint16_img.nii")
+print(uint16_img.get_fdata())
+
+# %% [markdown] slideshow={"slide_type": "fragment"}
+# And the `ArrayProxy`?
+
+# %%
+print(f"Slope: {uint16_img.dataobj.slope}; Intercept: {uint16_img.dataobj.inter}")
+print(uint16_img.dataobj.get_unscaled())
+
+# %% [markdown] slideshow={"slide_type": "subslide"}
+# ### Don't Panic
+#
+# <div style="float: right"><img src="https://nipy.org/nibabel/_static/reggie.png"></div>
+#
+# If you didn't follow all of the above, that's okay. Here are the important points:
+#
+# 1. When in doubt, use `img.get_fdata()`
+# 2. If you run into memory issues or really need to work with integer arrays, come back to the `img.dataobj`.
+#
+# In the NiBabel docs, [The image data array](https://nipy.org/nibabel/nibabel_images.html#the-image-data-array) gives you an overview of both methods, and [Images and memory](https://nipy.org/nibabel/images_and_memory.html) has even more details.
 
 # %% [markdown] slideshow={"slide_type": "slide"}
 # ## Surfaces and surface-sampled data
@@ -395,6 +521,113 @@ rescaled_t1w.to_filename('/tmp/rescaled.nii.gz')
 #
 # `get_fdata()` returns the data 
 
+# %% [markdown] slideshow={"slide_type": "slide"}
+# ## CIFTI-2
+#
+# <div style="float: right">
+#     <img src="https://www.ncbi.nlm.nih.gov/pmc/articles/instance/6172654/bin/nihms-990058-f0001.jpg">
+# </div>
+#
+# CIFTI-2 is a file format intended to cover many use cases for connectivity analysis.
+#
+# Files have 2-3 dimensions and each dimension is described by one of 5 types of axis.
+#
+# * Brain models: each row/column is a voxel or vertex
+# * Parcels: each row/column is a group of voxels and/or vertices
+# * Scalars: each row/column has a unique name
+# * Labels: each row/column has a unique name and label table
+# * Series: each row/column is a point in a series (typically time series), which increases monotonically
+#
+# For example, a "parcellated dense connectivity" CIFTI-2 file has two dimensions, indexed by a brain models axis and a parcels axis, respectively. The interpretation is "connectivity from parcels to vertices and/or voxels".
+
+# %% [markdown] slideshow={"slide_type": "subslide"}
+# <div style="float: right">
+#     <img src="cifti-xml.png">
+# </div>
+#
+# On disk, the file is a NIfTI-2 file with an alternative XML header as an extension, schematized here.
+#
+# NiBabel loads a header that closely mirrors this structure, and makes the NIfTI-2 header accessible as a `nifti_header` attribute.
+
 # %%
+cifti = nb.load('/data/out/qnl/repeat_change/fmriprep/sub-02/func/sub-02_task-repeatchange_run-5_space-fsLR_den-91k_bold.dtseries.nii')
+cifti_data = cifti.get_fdata(dtype=np.float32)
+cifti_hdr = cifti.header
+nifti_hdr = cifti.nifti_header
+
+# %% [markdown] slideshow={"slide_type": "fragment"}
+# The `Cifti2Header` is useful if you're familiar with the XML structure and need to fetch an exact value or have fine control over the header that is written.
+
+# %%
+bm0 = next(cifti_hdr.matrix[1].brain_models)
+print(bm0.voxel_indices_ijk)
+print(list(bm0.vertex_indices)[:20])
+
+# %% [markdown] slideshow={"slide_type": "fragment"}
+# Most of the time, the `Axis` format will be more useful:
+
+# %%
+axes = [cifti_hdr.get_axis(i) for i in range(cifti.ndim)]
+axes
+
+
+# %% [markdown] slideshow={"slide_type": "subslide"}
+# The simplest way to get a handle on CIFTI-2 data is to use it. Let's take an axis and a data block and repackage the voxels as a regular NIfTI-1 image:
+
+# %%
+def volume_from_cifti(data, axis):
+    assert isinstance(axis, nb.cifti2.BrainModelAxis)
+    data = data.T[axis.volume_mask]                          # Assume brainmodels axis is last, move it to front
+    volmask = axis.volume_mask                               # Which indices on this axis are for voxels?
+    vox_indices = tuple(axis.voxel[axis.volume_mask].T)      # ([x0, x1, ...], [y0, ...], [z0, ...])
+    vol_data = np.zeros(axis.volume_shape + data.shape[1:],  # Volume + any extra dimensions
+                        dtype=data.dtype)
+    vol_data[vox_indices] = data                             # "Fancy indexing"
+    return nb.Nifti1Image(vol_data, axis.affine)             # Add affine for spatial interpretation
+
+
+# %%
+volume_from_cifti(cifti_data, axes[1]).orthoview()
+
+
+# %% [markdown] slideshow={"slide_type": "subslide"}
+# Now we can extract the values on a surface vertex. This time, as a simple numpy array:
+
+# %%
+def surf_data_from_cifti(data, axis, surf_name):
+    assert isinstance(axis, nb.cifti2.BrainModelAxis)
+    for name, data_indices, model in axis.iter_structures():  # Iterates over volumetric and surface structures
+        if name == surf_name:                                 # Just looking for a surface
+            data = data.T[data_indices]                       # Assume brainmodels axis is last, move it to front
+            vtx_indices = model.vertex                        # Generally 1-N, except medial wall vertices
+            surf_data = np.zeros((vtx_indices.max() + 1,) + data.shape[1:], dtype=data.dtype)
+            surf_data[vtx_indices] = data
+            return surf_data
+    raise ValueError(f"No structure named {surf_name}")
+
+
+# %%
+_ = nl.plotting.plot_surf(str(data_dir / "conte69/Conte69.L.inflated.32k_fs_LR.surf.gii"),
+                          surf_data_from_cifti(cifti_data, axes[1], 'CIFTI_STRUCTURE_CORTEX_LEFT').mean(axis=1),
+                          cmap='plasma')
+
+
+# %% [markdown] slideshow={"slide_type": "subslide"}
+# Finally, combine into a function that will break a CIFTI-2 matrix into a volume and two surface components:
+
+# %%
+def decompose_cifti(img):
+    data = img.get_fdata(dtype=np.float32)
+    brain_models = img.header.get_axis(1)  # Assume we know this
+    return (volume_from_cifti(data, brain_models),
+            surf_data_from_cifti(data, brain_models, "CIFTI_STRUCTURE_CORTEX_LEFT"),
+            surf_data_from_cifti(data, brain_models, "CIFTI_STRUCTURE_CORTEX_RIGHT"))
+
+
+# %% slideshow={"slide_type": "fragment"}
+vol, left, right = decompose_cifti(cifti)
+print(vol.shape, left.shape, right.shape)
+vol, left, right = decompose_cifti(nb.load('/data/out/qnl/repeat_change-fitlins/fitlins/sub-02/sub-02_task-repeatchange_run-1_space-fsLR_contrast-changeGtRepeatCue_stat-effect_statmap.dscalar.nii'))
+print(vol.shape, left.shape, right.shape)
 
 # %%
