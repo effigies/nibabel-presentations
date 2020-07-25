@@ -84,6 +84,7 @@ import nilearn as nl
 import nilearn.plotting
 from matplotlib import pyplot as plt
 import transforms3d
+from scipy import ndimage as ndi
 
 # %matplotlib inline
 
@@ -474,12 +475,28 @@ float_img.to_filename("/tmp/uint16_img.nii")
 uint16_img = nb.load("/tmp/uint16_img.nii")
 print(uint16_img.get_fdata())
 
-# %% [markdown] slideshow={"slide_type": "fragment"}
-# And the `ArrayProxy`?
+# %% [markdown]
+# We clearly lost some precision...
+
+# %%
+np.max(np.abs(float_img.get_fdata() - uint16_img.get_fdata()))
+
+# %% [markdown]
+# But what's going on?
+
+# %% [markdown] slideshow={"slide_type": "subslide"}
+# The `ArrayProxy` keeps track of scaling factors:
 
 # %%
 print(f"Slope: {uint16_img.dataobj.slope}; Intercept: {uint16_img.dataobj.inter}")
 print(uint16_img.dataobj.get_unscaled())
+
+# %% [markdown]
+# The scaling is done automatically when the data is accessed, by slice or whole.
+
+# %% slideshow={"slide_type": "fragment"}
+print(np.asanyarray(uint16_img.dataobj))
+print(uint16_img.dataobj[0, 0, 0])
 
 # %% [markdown] slideshow={"slide_type": "subslide"}
 # ### Don't Panic
@@ -488,10 +505,75 @@ print(uint16_img.dataobj.get_unscaled())
 #
 # If you didn't follow all of the above, that's okay. Here are the important points:
 #
-# 1. When in doubt, use `img.get_fdata()`
-# 2. If you run into memory issues or really need to work with integer arrays, come back to the `img.dataobj`.
+# 1. When in doubt, use `img.get_fdata()` will fetch all of the data, and it will always be a float
+# 2. `img.dataobj` exists if you want to load only some data or control the data type
+# 3. Both methods transparently scale data when needed
 #
 # In the NiBabel docs, [The image data array](https://nipy.org/nibabel/nibabel_images.html#the-image-data-array) gives you an overview of both methods, and [Images and memory](https://nipy.org/nibabel/images_and_memory.html) has even more details.
+
+# %% [markdown] slideshow={"slide_type": "slide"}
+# ## Slicing images
+#
+# Slicing array proxies is nice. Wouldn't it be nicer to keep track of the affine and header?
+#
+# The `slicer` attribute provides an interface that allows you to apply slices to an image, and updates the affine to ensure that the spatial information matches.
+#
+# Consider the T1-weighted image from earlier:
+
+# %%
+_ = t1w.orthoview()
+
+# %% [markdown] slideshow={"slide_type": "subslide"}
+# We can use the slicer to crop unneeded voxels in the left-right and inferior-superior directions:
+
+# %%
+cropped = t1w.slicer[40:216, :, 50:226]  # Manually selected, nothing special
+cropped.orthoview()
+
+# %% [markdown]
+# Note the origin crosshair points to the same structure. The affines now differ in translation:
+
+# %%
+print(cropped.affine - t1w.affine)
+
+# %% [markdown] slideshow={"slide_type": "subslide"}
+# You can even downsample an image, and the zooms will reflect the increased distance between voxels.
+
+# %%
+cheap_downsample = cropped.slicer[2::4, 2::4, 2::4]
+print(cheap_downsample.header.get_zooms())
+cheap_downsample.orthoview()
+
+
+# %% [markdown]
+# Note that this is a bad idea in *most* circumstances because it induces aliasing.
+
+# %% [markdown] slideshow={"slide_type": "subslide"}
+# The better approach would be to anti-alias and then slice:
+
+# %%
+def blur(img, sigma):
+    return img.__class__(ndi.gaussian_filter(img.dataobj, sigma),img.affine, img.header)
+
+better_downsample = blur(cropped, sigma=1.5).slicer[2::4, 2::4, 2::4]
+better_downsample.orthoview()
+
+# %% [markdown] slideshow={"slide_type": "subslide"}
+# For non-spatial dimensions, slices or indices may be used to select one or more volumes.
+
+# %% slideshow={"slide_type": "-"}
+tp15 = bold.slicer[..., :5]
+tp1 = bold.slicer[..., 0]
+print(f"BOLD shape: {bold.shape}; Zooms: {bold.header.get_zooms()}")
+print(f"Time pts 1-5 shape: {tp15.shape}; Zooms: {tp15.header.get_zooms()}")
+print(f"Time pt 1 shape: {tp1.shape}; Zooms: {tp1.header.get_zooms()}")
+np.array_equal(tp15.get_fdata(), bold.dataobj[..., :5])
+
+# %% [markdown]
+# Aliasing considerations apply to time series as well.
+
+# %% [markdown] slideshow={"slide_type": "slide"}
+# <center>Break!</center>
 
 # %% [markdown] slideshow={"slide_type": "slide"}
 # ## Surfaces and surface-sampled data
