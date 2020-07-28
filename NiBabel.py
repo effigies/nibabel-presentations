@@ -154,13 +154,13 @@ new_t1w = nb.Nifti1Image.from_bytes(bstr)
 # %% [markdown] slideshow={"slide_type": "slide"}
 # ## Spatial Images
 #
-# Spatial images contain three things:
+# For MRI studies, neuroimaging data is typically acquired as one or more *volumes*, a regular grid of values. NiBabel represents these data as *spatial images*, a structure containing three things:
 #
 # 1. The image *data* array: a 3D or 4D array of image data
 # 1. An *affine* matrix: 4x4 array relating voxel coordinates and "world" coordinates
 # 1. Image *metadata*: usually a format-specific header
 #
-# Many file types encode this basic structure. NiBabel will read any of ANALYZE (plain, SPM99, SPM2 and later), NIfTI-1, NIfTI-2, MINC 1.0, MINC 2.0, AFNI BRIK/HEAD, MGH, ECAT, DICOM and Philips PAR/REC, and expose a simple API:
+# Many file types encode this basic structure. NiBabel will read any of ANALYZE (plain, SPM99, SPM2 and later), NIfTI-1, NIfTI-2, MINC 1.0, MINC 2.0, AFNI BRIK/HEAD, MGH, ECAT, DICOM and Philips PAR/REC, and expose a simple interface:
 
 # %%
 data = t1w.get_fdata()
@@ -383,7 +383,7 @@ rescaled_t1w.to_filename('/tmp/rescaled_t1w.nii.gz')
 # Recall that the spatial image contains data, affine and header objects. When creating a new image, the `data` array is typically an array.
 
 # %%
-array_img = nb.Nifti1Image(np.arange(24).reshape(2, 3, 4), affine=np.diag([2,2,2,1]))
+array_img = nb.Nifti1Image(np.arange(244, 268).reshape(2, 3, 4), affine=np.diag([2, 2, 2, 1]))
 print(array_img.dataobj)
 
 # %% [markdown] slideshow={"slide_type": "fragment"}
@@ -398,7 +398,7 @@ print(proxy_img.dataobj)
 # An array proxy is an object that knows how to access data, but does not read it until requested. The usual way to request data is `get_fdata()`, which returns all data as floating point:
 
 # %%
-proxy_img.get_fdata()
+proxy_img.get_fdata(dtype=np.float32)  # The default is float64, but you can choose any floating point type.
 
 # %% [markdown]
 # `get_fdata()` provides a very predictable interface. When you need more control, you'll want to work with the `ArrayProxy` directly.
@@ -416,12 +416,11 @@ arr
 # %% [markdown]
 # Memory maps are arrays that remain on disk, rather than in RAM. This is only possible with uncompressed images.
 #
-# We can also cast to any type we please, however unwisely. If we request the on-disk dtype, we'll get a `memmap`.
+# We can also cast to any type we please, however unwisely.
 
 # %%
-print(np.uint8(proxy_img.dataobj))
-print(np.complex256(proxy_img.dataobj))
-np.int64(proxy_img.dataobj)
+print(np.uint8(proxy_img.dataobj))       # Values over 255 will be truncated
+print(np.complex256(proxy_img.dataobj))  # A life less ordinal
 
 # %% [markdown] slideshow={"slide_type": "subslide"}
 # ### Indexing and slicing array proxies
@@ -451,11 +450,11 @@ vol0.shape
 
 # %%
 pr = (500, 2000)                            # Plausible range
-nbits = 16                                   # 8-bits of precision
+nbits = 16                                  # 16-bits of precision
 scl_slope = (pr[1] - pr[0]) / (2 ** nbits)  # Resolvable difference
 scl_inter = pr[0]                           # Minimum value
 print(scl_slope, scl_inter)
-"Saving space by collapsing plotting into one line."; x = np.arange(2 ** nbits); plt.step(x, x * scl_slope + scl_inter); vlim = np.array([120, 150]); plt.xlim(vlim); plt.ylim(vlim * scl_slope + scl_inter); _ = plt.show();
+"Saving space by collapsing plotting into one line."; x = np.arange(2 ** nbits); plt.step(x, x * scl_slope + scl_inter); vlim = np.array([120, 150]); plt.xlim(vlim); plt.ylim(vlim * scl_slope + scl_inter); plt.xlabel("On-disk value"); plt.ylabel('"True" value'); _ = plt.show();
 
 # %% [markdown] slideshow={"slide_type": "subslide"}
 # Let's create an image from some random values in our plausible range:
@@ -498,6 +497,16 @@ print(uint16_img.dataobj.get_unscaled())
 print(np.asanyarray(uint16_img.dataobj))
 print(uint16_img.dataobj[0, 0, 0])
 
+# %% [markdown]
+# The `ArrayProxy` guarantees that the data has the intended *value*, but the *type* can vary based on the on-disk type and the values of scaling factors.
+
+# %% slideshow={"slide_type": "fragment"}
+print(proxy_img.dataobj[0, 0, 0].dtype)   # Our earlier integer image
+print(uint16_img.dataobj[0, 0, 0].dtype)
+
+# %% [markdown]
+# `get_fdata()` sweeps these details under the rug and always gives you the same type.
+
 # %% [markdown] slideshow={"slide_type": "subslide"}
 # ### Don't Panic
 #
@@ -527,7 +536,7 @@ _ = t1w.orthoview()
 # We can use the slicer to crop unneeded voxels in the left-right and inferior-superior directions:
 
 # %%
-cropped = t1w.slicer[40:216, :, 50:226]  # Manually selected, nothing special
+cropped = t1w.slicer[40:216, :, 50:226]
 cropped.orthoview()
 
 # %% [markdown]
@@ -552,8 +561,8 @@ cheap_downsample.orthoview()
 # The better approach would be to anti-alias and then slice:
 
 # %%
-def blur(img, sigma):
-    return img.__class__(ndi.gaussian_filter(img.dataobj, sigma),img.affine, img.header)
+def blur(img, sigma):  # Isotropic in voxel space, not world space
+    return img.__class__(ndi.gaussian_filter(img.dataobj, sigma), img.affine, img.header)
 
 better_downsample = blur(cropped, sigma=1.5).slicer[2::4, 2::4, 2::4]
 better_downsample.orthoview()
@@ -570,15 +579,17 @@ print(f"Time pt 1 shape: {tp1.shape}; Zooms: {tp1.header.get_zooms()}")
 np.array_equal(tp15.get_fdata(), bold.dataobj[..., :5])
 
 # %% [markdown]
-# Aliasing considerations apply to time series as well.
+# Aliasing considerations apply to time series as well, so be careful with down-sampling here, too.
 
 # %% [markdown] slideshow={"slide_type": "slide"}
 # <center>Break!</center>
 
 # %% [markdown] slideshow={"slide_type": "slide"}
-# ## Surfaces and surface-sampled data
+# ## Surface-sampled data
 #
-# Surface data does not have the intrinsic geometry of a 3D array, so different structures are used.
+# Although the scanner samples data in three dimensions, some brain structures are better represented as a convoluted sheet than a volume. Data may be usefully resampled onto a cortical sheet, but in the process, it loses the intrinsic geometry of a 3D array.
+#
+# To represent data on a surface, you need the following structures:
 #
 # 1. The surface *mesh*
 #    1. Vertices: a list of coordinates in world space
@@ -587,12 +598,14 @@ np.array_equal(tp15.get_fdata(), bold.dataobj[..., :5])
 #
 # Unlike spatial images, these components are frequently kept in separate files.
 
-# %% [markdown] slideshow={"slide_type": "fragment"}
-# ### Image-specific APIs
+# %% [markdown] slideshow={"slide_type": "subslide"}
+# ### Image-specific interfaces
 #
-# The two supported surface formats at present are GIFTI and FreeSurfer geometry files.
+# The two supported surface formats at present are GIFTI and FreeSurfer geometry files. Unlike spatial images, there is not yet a common interface for working with surface-based data.
 #
-# FreeSurfer encodes a great deal of information in its directory structure and file names.
+# FreeSurfer encodes a great deal of information in its directory structure and file names, allowing the necessary data arrays to have relatively simple formats.
+#
+# GIFTI is more of an interchange format, and so has a rich metadata structure 
 
 # %%
 
