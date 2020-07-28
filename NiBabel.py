@@ -732,7 +732,7 @@ _ = nlp.plot_surf(str(data_dir / 'ds005-preproc/freesurfer/fsaverage5/surf/lh.in
 
 # %% [markdown] slideshow={"slide_type": "subslide"}
 # <div style="float: right">
-#     <img src="cifti-xml.png">
+#     <img src="images/cifti-xml.png">
 # </div>
 #
 # On disk, the file is a NIfTI-2 file with an alternative XML header as an extension, schematized here.
@@ -823,8 +823,7 @@ print(vol.shape, left.shape, right.shape)
 #
 # <div style="float: right">
 #     <div>
-#         <img src="
-# https://dipy.org/documentation/1.1.1./_images/corpuscallosum_sagittal.png/"><br/>
+#         <img src="images/streamlines.png"><br/>
 #         <span style="font-size: small">From <a href="https://dipy.org/documentation/1.1.1./examples_built/streamline_tools/">DIPY documentation</a></span>
 #     </div>
 # </div>
