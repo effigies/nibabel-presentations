@@ -78,6 +78,7 @@ print(nb.__version__)
 # %% slideshow={"slide_type": "fragment"}
 # Some additional, useful imports
 from pathlib import Path
+from pprint import pprint
 
 import numpy as np
 import nilearn as nl
@@ -85,8 +86,9 @@ import nilearn.plotting
 from matplotlib import pyplot as plt
 import transforms3d
 from scipy import ndimage as ndi
+import nibabel.testing
 
-# %matplotlib inline
+# %pylab inline
 
 # %%
 # Assume we're on the NeuroHackademy hub.
@@ -585,7 +587,7 @@ np.array_equal(tp15.get_fdata(), bold.dataobj[..., :5])
 # <center>Break!</center>
 
 # %% [markdown] slideshow={"slide_type": "slide"}
-# ## Surface-sampled data
+# ## Surface Images
 #
 # Although the scanner samples data in three dimensions, some brain structures are better represented as a convoluted sheet than a volume. Data may be usefully resampled onto a cortical sheet, but in the process, it loses the intrinsic geometry of a 3D array.
 #
@@ -593,10 +595,12 @@ np.array_equal(tp15.get_fdata(), bold.dataobj[..., :5])
 #
 # 1. The surface *mesh*
 #    1. Vertices: a list of coordinates in world space
-#    1. Triangles: a list of 3-tuples of indices into the coordinate list
+#    1. Faces: a list of 3-tuples of indices into the coordinate list
 # 2. The *data* array: a 1D or 2D array of values or vectors at each vertex
 #
 # Unlike spatial images, these components are frequently kept in separate files.
+#
+# *Terminological note*: You are likely to encounter multiple names for each of these. *Vertices* may be called *coordinates* or a *point set*. *Faces* are often called *triangles*. When a data array is plotted on the surface, it might be called a *texture*.
 
 # %% [markdown] slideshow={"slide_type": "subslide"}
 # ### Image-specific interfaces
@@ -605,22 +609,122 @@ np.array_equal(tp15.get_fdata(), bold.dataobj[..., :5])
 #
 # FreeSurfer encodes a great deal of information in its directory structure and file names, allowing the necessary data arrays to have relatively simple formats.
 #
-# GIFTI is more of an interchange format, and so has a rich metadata structure 
+# GIFTI is more of an interchange format, and so has a rich metadata structure and can store different kinds of data.
+
+# %% [markdown] slideshow={"slide_type": "subslide"}
+# #### Surface meshes
+#
+# To load a surface mesh in a FreeSurfer directory, use `nb.freesurfer.read_geometry`:
 
 # %%
+fs_verts, fs_faces, fs_meta = nb.freesurfer.read_geometry(data_dir / 'ds005-preproc/freesurfer/sub-01/surf/lh.pial', read_metadata=True)
+print(fs_verts[:2])
+print(fs_faces[:2])
+pprint(fs_meta)
 
 # %% [markdown]
-# ## Memory management
+# NiBabel does not have any viewer for surfaces, but Nilearn has plotting utilities:
+
+# %%
+_ = nl.plotting.plot_surf((fs_verts, fs_faces))
+
+# %% [markdown] slideshow={"slide_type": "subslide"}
+# Let's do the same thing with GIFTI. Here, the file-level metadata is minimal:
+
+# %%
+gii_pial = nb.load(data_dir / 'ds005-preproc/fmriprep/sub-01/anat/sub-01_hemi-L_pial.surf.gii')
+pprint(gii_pial.meta.metadata)  # .meta maps onto the XML object, its .metadata property exposes a Python dict
+
+# %% [markdown]
+# The vertices and faces are stored as separate data arrays, each with their own metadata. These can be queried by NIfTI *intent code*:
+
+# %%
+pointset_darray = gii_pial.get_arrays_from_intent('pointset')[0]
+triangle_darray = gii_pial.get_arrays_from_intent('triangle')[0]
+pprint(pointset_darray.meta.metadata)
+pprint(triangle_darray.meta.metadata)
+
+# %% [markdown] slideshow={"slide_type": "subslide"}
+# The actual values are stored as the `.data` attribute:
+
+# %%
+gii_verts, gii_faces = pointset_darray.data, triangle_darray.data
+print(gii_verts[:2])
+print(gii_faces[:2])
+
+# %% [markdown]
+# This API can be cumbersome, if all you want is the NumPy arrays. Thanks to a project started at Neurohackademy 2019, the `agg_data()` (aggregate data) method will find the requested data array(s) and return just the data:
+
+# %%
+gii_verts, gii_faces = gii_pial.agg_data(('pointset', 'triangle'))
+print(gii_verts[:2])
+print(gii_faces[:2])
+_ = nl.plotting.plot_surf((gii_verts, gii_faces))
+
+# %% [markdown] slideshow={"slide_type": "subslide"}
+# #### Surface-sampled data
 #
-# Images that expose the data-header (`DataobjImage`) API have two ways of accessing data.
+# For data sampled to the surface, FreeSurfer has a few data types:
+
+# %%
+# Morphometry
+curv = nb.freesurfer.read_morph_data(data_dir / 'ds005-preproc/freesurfer/sub-01/surf/lh.curv')
+# Annotations
+labels, color_table, names = nb.freesurfer.read_annot(data_dir / 'ds005-preproc/freesurfer/sub-01/label/lh.aparc.annot')
+# MGH files...
+mgh = nb.load(data_dir / 'ds005-preproc/freesurfer/sub-01/surf/lh.w-g.pct.mgh')
+print(curv.shape)
+print(labels.shape)
+print(mgh.shape)
+
+# %%
+fig, axes = plt.subplots(1, 3, subplot_kw={'projection': '3d'})
+_ = nl.plotting.plot_surf((fs_verts, fs_faces), curv, axes=axes[0])
+_ = nl.plotting.plot_surf((fs_verts, fs_faces), labels, axes=axes[1])
+_ = nl.plotting.plot_surf((fs_verts, fs_faces), mgh.get_fdata(), axes=axes[2])
+
+# %% [markdown] slideshow={"slide_type": "subslide"}
+# GIFTIs will be GIFTIs. This one is a BOLD series sampled to the `fsaverage5` surface:
+
+# %%
+bold_gii = nb.load(data_dir / 'ds005-preproc/fmriprep/sub-01/func/sub-01_task-mixedgamblestask_run-1_space-fsaverage5_hemi-L_bold.func.gii')
+
+# %% [markdown] slideshow={"slide_type": "subslide"}
+# Each time point is an individual data array with intent `NIFTI_INTENT_TIME_SERIES`. `agg_data()` will aggregate these into a single array.
+
+# %%
+data = bold_gii.agg_data('time series')
+data.shape
+
+# %% [markdown] slideshow={"slide_type": "fragment"}
+# We can plot the mean BOLD signal. This time we will use a FreeSurfer surface, which Nilearn knows what to do with:
+
+# %%
+_ = nl.plotting.plot_surf(str(data_dir / 'freesurfer_subjects/fsaverage5/surf/lh.inflated'),
+                          data.mean(axis=1))
+
+# %% [markdown] slideshow={"slide_type": "subslide"}
+# ### Don't Panic
 #
-# `get_fdata()` returns the data 
+# <div style="float: right"><img src="https://nipy.org/nibabel/_static/reggie.png"></div>
+#
+# If you didn't follow all of the above, that's okay. Here are the important points:
+#
+# 1. Practical considerations make dealing with surfaces a multi-file affair
+# 2. The data structures are common (vertices, faces, per-vertex data arrays), but the arrangement can vary
+# 3. For working with FreeSurfer files, learn to traverse the directory and identify file types
+# 4. For working with GIFTI, learn to query the file for its contents
+#
+# Hopefully next year, we'll be able to talk about a common interface that will simplify things.
 
 # %% [markdown] slideshow={"slide_type": "slide"}
 # ## CIFTI-2
 #
 # <div style="float: right">
-#     <img src="https://www.ncbi.nlm.nih.gov/pmc/articles/instance/6172654/bin/nihms-990058-f0001.jpg">
+#     <div>
+#         <img src="https://www.ncbi.nlm.nih.gov/pmc/articles/instance/6172654/bin/nihms-990058-f0001.jpg"><br/>
+#         <span style="font-size: small">From Glasser, et al., 2016. doi:<a href="https://doi.org/10.1038/nn.4361">10.1038/nn.4361</a></span>
+#     </div>
 # </div>
 #
 # CIFTI-2 is a file format intended to cover many use cases for connectivity analysis.
@@ -645,7 +749,7 @@ np.array_equal(tp15.get_fdata(), bold.dataobj[..., :5])
 # NiBabel loads a header that closely mirrors this structure, and makes the NIfTI-2 header accessible as a `nifti_header` attribute.
 
 # %%
-cifti = nb.load('/data/out/qnl/repeat_change/fmriprep/sub-02/func/sub-02_task-repeatchange_run-5_space-fsLR_den-91k_bold.dtseries.nii')
+cifti = nb.load(data_dir / 'ds005-preproc/fmriprep/sub-01/func/sub-01_task-mixedgamblestask_run-1_space-fsLR_den-91k_bold.dtseries.nii')
 cifti_data = cifti.get_fdata(dtype=np.float32)
 cifti_hdr = cifti.header
 nifti_hdr = cifti.nifti_header
