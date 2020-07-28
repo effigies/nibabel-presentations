@@ -289,12 +289,6 @@ i, j, k, _ = np.linalg.pinv(affine) @ [0, 0, 0, 1]
 print(f"Center: ({int(i)}, {int(j)}, {int(k)})")
 print(f"Value: ", data[int(i), int(j), int(k)])
 
-# %% [markdown] slideshow={"slide_type": "skip"}
-# `rescale_affine` modifies an affine to fit an image with different zooms or field-of-view while preserving rotations and the world coordinate of the central voxel:
-
-# %% slideshow={"slide_type": "skip"}
-print(nb.affines.rescale_affine(affine, t1w.shape, (1, 1, 1), (256, 256, 256)))
-
 # %% [markdown] slideshow={"slide_type": "subslide"}
 # #### Don't Panic
 #
@@ -624,7 +618,7 @@ pprint(fs_meta)
 # NiBabel does not have any viewer for surfaces, but Nilearn has plotting utilities:
 
 # %%
-_ = nl.plotting.plot_surf((fs_verts, fs_faces))
+_ = nlp.plot_surf((fs_verts, fs_faces))
 
 # %% [markdown] slideshow={"slide_type": "subslide"}
 # Let's do the same thing with GIFTI. Here, the file-level metadata is minimal:
@@ -657,7 +651,7 @@ print(gii_faces[:2])
 gii_verts, gii_faces = gii_pial.agg_data(('pointset', 'triangle'))
 print(gii_verts[:2])
 print(gii_faces[:2])
-_ = nl.plotting.plot_surf((gii_verts, gii_faces))
+_ = nlp.plot_surf((gii_verts, gii_faces))
 
 # %% [markdown] slideshow={"slide_type": "subslide"}
 # #### Surface-sampled data
@@ -677,9 +671,9 @@ print(mgh.shape)
 
 # %%
 fig, axes = plt.subplots(1, 3, subplot_kw={'projection': '3d'})
-_ = nl.plotting.plot_surf((fs_verts, fs_faces), curv, axes=axes[0])
-_ = nl.plotting.plot_surf((fs_verts, fs_faces), labels, axes=axes[1])
-_ = nl.plotting.plot_surf((fs_verts, fs_faces), mgh.get_fdata(), axes=axes[2])
+_ = nlp.plot_surf((fs_verts, fs_faces), curv, axes=axes[0])
+_ = nlp.plot_surf((fs_verts, fs_faces), labels, axes=axes[1])
+_ = nlp.plot_surf((fs_verts, fs_faces), mgh.get_fdata(), axes=axes[2])
 
 # %% [markdown] slideshow={"slide_type": "subslide"}
 # GIFTIs will be GIFTIs. This one is a BOLD series sampled to the `fsaverage5` surface:
@@ -698,8 +692,7 @@ data.shape
 # We can plot the mean BOLD signal. This time we will use a FreeSurfer surface, which Nilearn knows what to do with:
 
 # %%
-_ = nl.plotting.plot_surf(str(data_dir / 'freesurfer_subjects/fsaverage5/surf/lh.inflated'),
-                          data.mean(axis=1))
+_ = nlp.plot_surf(str(data_dir / 'ds005-preproc/freesurfer/fsaverage5/surf/lh.inflated'), data.mean(axis=1))
 
 # %% [markdown] slideshow={"slide_type": "subslide"}
 # ### Don't Panic
@@ -804,9 +797,9 @@ def surf_data_from_cifti(data, axis, surf_name):
 
 
 # %%
-_ = nl.plotting.plot_surf(str(data_dir / "conte69/Conte69.L.inflated.32k_fs_LR.surf.gii"),
-                          surf_data_from_cifti(cifti_data, axes[1], 'CIFTI_STRUCTURE_CORTEX_LEFT').mean(axis=1),
-                          cmap='plasma')
+_ = nlp.plot_surf(str(data_dir / "conte69/Conte69.L.inflated.32k_fs_LR.surf.gii"),
+                  surf_data_from_cifti(cifti_data, axes[1], 'CIFTI_STRUCTURE_CORTEX_LEFT').mean(axis=1),
+                  cmap='plasma')
 
 
 # %% [markdown] slideshow={"slide_type": "subslide"}
