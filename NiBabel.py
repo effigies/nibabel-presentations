@@ -25,7 +25,9 @@
 # ###### NeuroHackademy 2020
 
 # %% [markdown] slideshow={"slide_type": "notes"}
-# The goal of this presentation is to become familiar with loading, modifying, saving and visualizing neuroimaging data in Python.
+# The goal of this presentation is to familiarize you with some broad classes of neuroimaging data that can be interacted with in Python, using the NiBabel library.
+#
+# This document is intended to be viewed as a [RISE](https://rise.readthedocs.io/) presentation. It works fine as a notebook, but blocks with images may look strange because they are formatted to work as slides.
 
 # %% [markdown] slideshow={"slide_type": "slide"}
 # # NiBabel
@@ -77,16 +79,15 @@ print(nb.__version__)
 
 # %% slideshow={"slide_type": "fragment"}
 # Some additional, useful imports
-from pathlib import Path
-from pprint import pprint
+from pathlib import Path              # Combine path elements with /
+from pprint import pprint             # Pretty-printing
 
-import numpy as np
-import nilearn as nl
-import nilearn.plotting
-from matplotlib import pyplot as plt
-import transforms3d
-from scipy import ndimage as ndi
-import nibabel.testing
+import numpy as np                    # Numeric Python
+from matplotlib import pyplot as plt  # Matlab-ish plotting commands
+from nilearn import plotting as nlp   # Nice neuroimage plotting
+import transforms3d                   # Work with affine algebra
+from scipy import ndimage as ndi      # Operate on N-dimensional images
+import nibabel.testing                # For fetching test data
 
 # %pylab inline
 
@@ -95,15 +96,12 @@ import nibabel.testing
 data_dir = Path('/home/jovyan/data')
 
 # %% [markdown] slideshow={"slide_type": "slide"}
-# ## Agenda
+# ## Learning objectives
 #
-# 1. Basic input/output: loading and saving images
-# 1. Image types
-#    1. The `SpatialImage` API: volumetric images with affines (NIfTI and friends)
-#    1. Surfaces and surface-sampled data (GIFTI and FreeSurfer geometry)
-#    1. CIFTI-2
-#    1. Tractography
-# 1. The `DataobjImage` and `ArrayProxy` APIs: data scaling and memory management
+# 1. Be able to load and save different types of files in NiBabel
+# 1. Become familiar with the `SpatialImage` API and identify its components
+# 1. Understand the differences between array and proxy images
+# 1. Acquire a passing familiarity with the structures of surface images, CIFTI-2 files, and tractograms
 
 # %% [markdown] slideshow={"slide_type": "slide"}
 # ## Basic I/O
@@ -211,7 +209,7 @@ print(affine)
 # %% [markdown] slideshow={"slide_type": "slide"}
 # ### Affine transforms
 #
-# The affine is a 4 x 4 numpy array. This describes the transformation from the voxel space (indices $(i, j, k)$) to a *reference* space (coordinates $(x, y, z)$). These coordinates are, by convention, distance in mm *right*, *anterior* and *superior* of an origin.
+# The affine is a 4 x 4 numpy array. This describes the transformation from the voxel space (indices $(i, j, k)$) to a *reference* space (coordinates $(x, y, z)$). These coordinates are, by convention, distance in mm *right*, *anterior* and *superior* of an origin\*.
 #
 # $$
 #     \begin{bmatrix}
@@ -244,7 +242,7 @@ print(affine)
 #
 # ![](https://nipy.org/nibabel/_images/localizer.png)
 #
-#
+# \* *If a file format uses an alternative convention, NiBabel converts on read/write, so affines are always RAS+.*
 
 # %% [markdown] slideshow={"slide_type": "subslide"}
 # #### The affine as a series of transformations
@@ -826,7 +824,123 @@ def decompose_cifti(img):
 # %% slideshow={"slide_type": "fragment"}
 vol, left, right = decompose_cifti(cifti)
 print(vol.shape, left.shape, right.shape)
-vol, left, right = decompose_cifti(nb.load('/data/out/qnl/repeat_change-fitlins/fitlins/sub-02/sub-02_task-repeatchange_run-1_space-fsLR_contrast-changeGtRepeatCue_stat-effect_statmap.dscalar.nii'))
-print(vol.shape, left.shape, right.shape)
+
+# %% [markdown] slideshow={"slide_type": "slide"}
+# ## Tractography
+#
+# <div style="float: right">
+#     <div>
+#         <img src="
+# https://dipy.org/documentation/1.1.1./_images/corpuscallosum_sagittal.png/"><br/>
+#         <span style="font-size: small">From <a href="https://dipy.org/documentation/1.1.1./examples_built/streamline_tools/">DIPY documentation</a></span>
+#     </div>
+# </div>
+#
+# Diffusion MRI uses estimates of the directional flow of water to detect white matter tracts. These tracts are represented as a series of points in world space.
+#
+# NiBabel represents tractogram files as a collection of these things:
+#
+# 1. A *tractogram*, which is:
+#    1. A set of *streamlines*: each streamline is a series of coordinates describing a path
+#    1. Streamline-level data: a set of data arrays associated with each streamline
+#    1. Point-level data: a set of data arrays associated with each point of each streamline
+# 1. An *affine* matrix: 4x4 array relating voxel coordinates of a reference image and world coordinates
+# 1. File-level metadata: a format-specific header
+#
+# Files of this type are considered `TractogramFile`s. Like `SpatialImage`, the goal is to provide a uniform interface where possible.
+#
+# The two currently-supported file types are TCK (MRtrix) and TRK (TrackVis). We will load some very small ones that were created for testing:
 
 # %%
+tck = nb.streamlines.load(Path(nb.testing.data_path) / 'standard.tck')
+trk = nb.streamlines.load(Path(nb.testing.data_path) / 'complex.trk')
+
+# %% [markdown] slideshow={"slide_type": "subslide"}
+# Like a spatial image, printing the tractogram file gives an overview:
+
+# %%
+print(trk)
+
+# %% [markdown]
+# ### The streamlines API
+#
+# The overall API is as follows:
+
+# %%
+# File-level
+tractogram = trk.tractogram
+trk_affine = trk.affine      # Describes relation between voxels and coordinates in an associated image
+trk_header = trk.header
+
+# All streamlines
+streamlines = tractogram.streamlines
+data_per_point = tractogram.data_per_point
+data_per_streamline = tractogram.data_per_streamline
+
+# One streamline at a time
+tractogram_item = tractogram[2]                        # Most to look at
+streamline_coords = tractogram_item.streamline
+streamline_data = tractogram_item.data_for_streamline
+point_data = tractogram_item.data_for_points
+
+# %% [markdown] slideshow={"slide_type": "subslide"}
+# #### A single streamline
+#
+# When looking at an individual streamline, the objects are familiar: NumPy arrays and Python dictionaries.
+
+# %%
+print(streamline_coords)
+pprint(streamline_data)
+pprint(point_data)
+
+# %% [markdown] slideshow={"slide_type": "subslide"}
+# #### All streamlines
+#
+# When looking at all streamlines, the objects are custom. These deal with issues arising from the fact that each streamline may have a different number of coordinates, so N-dimensional arrays are not appropriate.
+
+# %%
+print(streamlines)
+print(data_per_streamline)
+print(data_per_point)
+
+# %% [markdown]
+# The dictionaries operate like normal dictionaries, providing NumPy array and `ArraySequence` values.
+
+# %%
+print(data_per_streamline['mean_curvature'])
+print(data_per_point['fa'])
+
+# %% [markdown] slideshow={"slide_type": "subslide"}
+# Each component is also indexable by integer:
+
+# %%
+print(streamlines[2])
+pprint(dict(data_per_streamline[2])); print()  # For space
+pprint(dict(data_per_point[2]))
+
+# %% [markdown]
+# As we can see, there are a few ways to get at the same data, based on whether you prefer to operate by streamline or by data element (such as `fa`).
+
+# %% [markdown] slideshow={"slide_type": "slide"}
+# # Summary
+#
+# <div style="float: right"><img src="https://nipy.org/nibabel/_static/reggie.png"></div>
+#
+# You made it!
+#
+# ## Learning objectives (reprise)
+#
+# 1. Be able to load and save different types of files in NiBabel
+#    * `nb.load`, `nb.save`, `img.to_filename()`, `img.to_bytes()`, `img.from_bytes()`
+# 1. Become familiar with the `SpatialImage` API and identify its components
+#    * `img.get_fdata()`/`img.dataobj`
+#    * `img.affine`
+#    * `img.header`
+# 1. Understand the differences between array and proxy images
+#    * Arrays are what it says on the tin.
+#    * Proxies conserve memory and automatically scale values
+#    * `get_fdata()` and `dataobj` provide tradeoffs between consistency and control
+# 1. Acquire a passing familiarity with:
+#    * Surfaces: Meshes and per-vertex data, idiosyncratic
+#    * CIFTI-2: 2-3D NIfTI with some interesting axes; brainmodels can be decomposed into volume and surface components
+#    * Tractograms: Streamlines are paths in space, and data can be attached to the point or the path
